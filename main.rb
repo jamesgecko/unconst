@@ -23,7 +23,7 @@ end
 class Editor
   def initialize(file, path)
     @file = file
-    @middle_index = find_lines(spec, 'beforeEach(')[0]
+    @middle_index = find_lines(file, 'beforeEach(')[0]
     @above_mod = 0
     @below_mod = 0
     @index = 0
@@ -31,21 +31,53 @@ class Editor
     raise "Missing beforeEach block #{path}" unless @middle_index 
   end
 
-  def replace_above(index, text_obj)
+  def replace_above(text_obj)
+    puts "replacing #{text_obj}"
+    puts text_obj.definition.inspect
+    @file[@index] = text_obj.definition # Replacement text is always a single line
+    lines_deleted = text_obj.content.length - 1
+    if lines_deleted > 0
+      lines_deleted.times { @file.delete_at(@index + 1) }
+      @above_mod -= lines_deleted
+    end
   end
 
-  def insert_below(index, text_obj)
+  def insert_below(text_obj)
+    puts "inserting #{text_obj}"
+    puts text_obj.assignment.inspect
     content = text_obj.assignment
-    @file.insert(@middle_index + 1 + @below_mod + index, content)
+    content.each_with_index do |content_line, content_index|
+      @file.insert(@middle_index + 1 + @below_mod + @above_mod + content_index, content_line)
+    end
     @below_mod += content.length
   end
 
-  def cursor_index
+  def cursor_line
     @index
   end
 
-  def next_index
+  def next_line
     @index += 1
+  end
+
+  def reached_middle?
+    @index >= @middle_index + @above_mod
+  end
+
+  def adjusted_line_number(line_number)
+    line_number + @above_mod
+  end
+
+  def debug
+    puts "a#{@above_mod}, m#{@middle_index}, b#{@below_mod}: #{@middle_index + 1 + @below_mod + @above_mod}"
+  end
+
+  def debug_file
+    puts '---'
+    @file.each_with_index do |line, i|
+      puts "#{i + 1}\t #{line}"
+    end
+    puts '---'
   end
 end
 
@@ -76,17 +108,29 @@ end
 
 def parse(filepath, spec)
   editor = Editor.new(spec, filepath)
-
   known_variables = {}
-  consts = find_lines(spec, 'const', 0, before_each_i)
-  i = 0
-  (0..before_each_i).each do
-    puts i + from_mod
-    if consts.map {|c| c + from_mod }.include?(i)
+
+  until editor.reached_middle?
+    puts "(#{editor.cursor_line})"
+    if spec[editor.cursor_line].include?('const')
+      puts "const found: #{spec[editor.cursor_line]}"
+      variable = parse_variable(spec, editor.cursor_line)
+      known_variables[variable.name] = true
+      editor.insert_below(variable)
+      editor.replace_above(variable)
+    end
+    editor.next_line
+  end
+
+  # i = 0
+  # (0..before_each_i).each do
+  #   puts i + from_mod
+  #   if consts.map {|line_number| editor.adjusted_line_number(line_number) }.include?(i)
       # puts "const at #{i}", spec[i]
       # variable = parse_variable(spec, i)
       # known_variables[variable.name] = true
       # spec.insert(before_each_i + 1 + to_mod, variable.assignment)
+
       # spec[i + from_mod] = variable.definition
       # extra_lines_changed = variable.content.length - 1
       # puts "extra changed lines: #{extra_lines_changed}"
@@ -94,8 +138,8 @@ def parse(filepath, spec)
       # from_mod -= extra_lines_changed if extra_lines_changed > 0
       # to_mod += variable.content.length
       # puts variable.name
-    elsif known_variables[parse_variable_name(spec[i])]
-      puts 'ho'
+    # elsif known_variables[parse_variable_name(spec[i])]
+    #   puts 'ho'
       # name = parse_variable_name(spec[i])
       # puts "known variable #{name}"
       # operation = Operation.new(name, parse_variable_content(spec, i))
@@ -105,11 +149,11 @@ def parse(filepath, spec)
       # extra_lines_changed.times { spec.delete_at(i + mod + 1) }
       # mod -= extra_lines_changed if extra_lines_changed > 0
       # before_each_mod += operation.content.length
-    elsif parse_variable_name(spec[i]) == 'beforeEach'
-      break
-    end
-    i += 1
-  end
+  #   elsif parse_variable_name(spec[i]) == 'beforeEach'
+  #     break
+  #   end
+  #   i += 1
+  # end
   puts spec
 end
 
