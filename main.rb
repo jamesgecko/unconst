@@ -5,8 +5,11 @@
 # declared using `let`, then defined in the beforeEach block.
 # This script edits a test suite to get rid of all the shared consts.
 #
-# Usage: 
+# Eventual usage: 
 # $ ag -l 'const.*mock' --file-search-regex spec.ts | ruby ~/unconst/main.rb
+#
+# Current usage:
+# $ echo 'app/javascript/v2/app/core/services/feature-guard/feature-guard.service.spec.ts' | ruby ~/unconst/main.rb
 
 def log(string)
   puts string if false
@@ -37,7 +40,7 @@ end
 class Editor
   def initialize(file, path)
     @file = file
-    @middle_index = find_lines(file, 'beforeEach(')[0]
+    @middle_index = find_lines(file, 'beforeEach(')
     @above_mod = 0
     @below_mod = 0
     @index = 0
@@ -106,20 +109,19 @@ def main
   STDIN.each_line do |filepath|
     log '--- ' + filepath
     path = Dir.pwd + '/' + filepath.strip
-    File.open(path) do |f|
-      parse(filepath, f.readlines)
+    File.open(path, 'r+') do |f|
+      result = parse(filepath, f.readlines)
+      f.rewind
+      f.truncate(0)
+      f.write(*result)
     end
   end
 end
 
-def find_lines(array, string, first_i = 0, last_i = nil)
-  last_i ||= array.length - 1
-  array = array[first_i..last_i]
-  results = []
+def find_lines(array, string)
   array.each_with_index do |line, i|
-    results << i + first_i if line.include?(string)
+    return i if line.include?(string)
   end
-  results
 end
 
 def replace_def(body, index, new_var)
@@ -148,7 +150,7 @@ def parse(filepath, spec)
     end
     editor.next_line
   end
-  puts spec
+  spec
 end
 
 def parse_variable_name(line)
