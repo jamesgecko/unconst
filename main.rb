@@ -17,12 +17,12 @@ end
 
 Variable = Struct.new(:name, :content, :type) do
   def definition(indent = 2)
-    @definition ||= ' ' * indent + ( type ? "let #{name}: #{type};" : "let #{name};")
+    @definition ||= ' ' * indent + ( type ? "let #{name}: #{type};\n" : "let #{name};\n")
   end
 
   def assignment(indent = 2)
     result = content.map { |line| ' ' * indent + line}
-    result[0] = ' ' * indent + "  #{name} = #{result[0].strip}"
+    result[0] = ' ' * indent + "  #{name} = #{result[0].strip}\n"
     result 
   end
 end
