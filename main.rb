@@ -1,6 +1,20 @@
+# This script fixes a very specific issue in Jasmine 2.x test suites. When test
+# objects are declared as constants outside of the initial beforeEach block, the
+# objects can be shared between specs.  Jasmine 3+ runs specs in a random order,
+# exposing issues with this shared state. All global text objects should be
+# declared using `let`, then defined in the beforeEach block.
+# This script edits a test suite to get rid of all the shared consts.
+#
+# Usage: 
+# $ ag -l 'const.*mock' --file-search-regex spec.ts | ruby ~/unconst/main.rb
+
+def log(string)
+  puts string if false
+end
+
 Variable = Struct.new(:name, :content, :type) do
   def definition(indent = 2)
-    ' ' * indent + ( type ? "let #{name}: #{type};" : "let #{name};")
+    @definition ||= ' ' * indent + ( type ? "let #{name}: #{type};" : "let #{name};")
   end
 
   def assignment(indent = 2)
@@ -32,9 +46,16 @@ class Editor
   end
 
   def replace_above(text_obj)
-    puts "replacing #{text_obj}"
-    puts text_obj.definition.inspect
-    @file[@index] = text_obj.definition # Replacement text is always a single line
+    log "replacing #{text_obj}"
+    log text_obj.definition.inspect
+    if text_obj.definition
+      @file[@index] = text_obj.definition # Replacement text is always a single line for now
+    else
+      @file.delete_at(@index)
+      @above_mod -= 1
+      @index -= 1
+    end
+
     lines_deleted = text_obj.content.length - 1
     if lines_deleted > 0
       lines_deleted.times { @file.delete_at(@index + 1) }
@@ -43,8 +64,8 @@ class Editor
   end
 
   def insert_below(text_obj)
-    puts "inserting #{text_obj}"
-    puts text_obj.assignment.inspect
+    log "inserting #{text_obj}"
+    log text_obj.assignment.inspect
     content = text_obj.assignment
     content.each_with_index do |content_line, content_index|
       @file.insert(@middle_index + 1 + @below_mod + @above_mod + content_index, content_line)
@@ -69,21 +90,21 @@ class Editor
   end
 
   def debug
-    puts "a#{@above_mod}, m#{@middle_index}, b#{@below_mod}: #{@middle_index + 1 + @below_mod + @above_mod}"
+    log "a#{@above_mod}, m#{@middle_index}, b#{@below_mod}: #{@middle_index + 1 + @below_mod + @above_mod}"
   end
 
   def debug_file
-    puts '---'
+    log '---'
     @file.each_with_index do |line, i|
-      puts "#{i + 1}\t #{line}"
+      log "#{i + 1}\t #{line}"
     end
-    puts '---'
+    log '---'
   end
 end
 
 def main
   STDIN.each_line do |filepath|
-    puts '--- ' + filepath
+    log '--- ' + filepath
     path = Dir.pwd + '/' + filepath.strip
     File.open(path) do |f|
       parse(filepath, f.readlines)
@@ -111,49 +132,22 @@ def parse(filepath, spec)
   known_variables = {}
 
   until editor.reached_middle?
-    puts "(#{editor.cursor_line})"
+    log "(#{editor.cursor_line})"
     if spec[editor.cursor_line].include?('const')
-      puts "const found: #{spec[editor.cursor_line]}"
-      variable = parse_variable(spec, editor.cursor_line)
+      log "const found: #{spec[editor.cursor_line]}"
+      variable = parse_variable_definition(spec, editor.cursor_line)
       known_variables[variable.name] = true
       editor.insert_below(variable)
       editor.replace_above(variable)
+    elsif known_variables[parse_variable_name(spec[editor.cursor_line])]
+      name = parse_variable_name(spec[editor.cursor_line])
+      log "known variable found: #{name}"
+      operation = Operation.new(name, parse_variable_content(spec, editor.cursor_line))
+      editor.insert_below(operation)
+      editor.replace_above(operation)
     end
     editor.next_line
   end
-
-  # i = 0
-  # (0..before_each_i).each do
-  #   puts i + from_mod
-  #   if consts.map {|line_number| editor.adjusted_line_number(line_number) }.include?(i)
-      # puts "const at #{i}", spec[i]
-      # variable = parse_variable(spec, i)
-      # known_variables[variable.name] = true
-      # spec.insert(before_each_i + 1 + to_mod, variable.assignment)
-
-      # spec[i + from_mod] = variable.definition
-      # extra_lines_changed = variable.content.length - 1
-      # puts "extra changed lines: #{extra_lines_changed}"
-      # extra_lines_changed.times { spec.delete_at(i + from_mod + 1) }
-      # from_mod -= extra_lines_changed if extra_lines_changed > 0
-      # to_mod += variable.content.length
-      # puts variable.name
-    # elsif known_variables[parse_variable_name(spec[i])]
-    #   puts 'ho'
-      # name = parse_variable_name(spec[i])
-      # puts "known variable #{name}"
-      # operation = Operation.new(name, parse_variable_content(spec, i))
-
-      # spec.insert(before_each_i + 1 + before_each_mod, operation.body)
-      # extra_lines_changed = operation.content.length - 1
-      # extra_lines_changed.times { spec.delete_at(i + mod + 1) }
-      # mod -= extra_lines_changed if extra_lines_changed > 0
-      # before_each_mod += operation.content.length
-  #   elsif parse_variable_name(spec[i]) == 'beforeEach'
-  #     break
-  #   end
-  #   i += 1
-  # end
   puts spec
 end
 
@@ -162,7 +156,7 @@ def parse_variable_name(line)
   name ? name[1] : nil
 end
 
-def parse_variable(array, starting_index)
+def parse_variable_definition(array, starting_index)
   line = array[starting_index]
   name = line.match(/(?<=const )(.*?)(?=[ :=]+)/)[1]
   type_match = line.match(/(?<=const #{name}:)(.*?)(?=[=]+)/)
@@ -198,37 +192,4 @@ def parse_variable_content(array, starting_index)
   raise 'Runaway parser'
 end
 
-# def parse_content_stack(array, starting_index)
-#   stack = []
-#   stack_vars = {
-#     '(' => ')',
-#     '{' => '}',
-#     '[' => ']'
-#   }
-#   first_content_index = array[starting_index].index('=') + 1
-#   line = array[starting_index..-1]
-#   index = starting_index
-#   result = []
-
-#   (starting_index..array.length - 1).each do |i|
-#     line.each do |char|
-#       if stack_vars[char]
-#         stack << stack_vars[char] 
-#       elsif char == stack[-1]
-#         stack.pop
-#       end
-#     end
-#     result << line
-#     return result if stack.count == 0 && line.strip[-1] == ';'
-#     line = array[i]
-#   end
-# end
-
 main()
-
-# Find consts
-# Locate entire const definition
-# Add const assignment entries into beforeEach at correct indention
-# Add let defines in the original location
-# Find anything outside beforeEach with the defined names
-# Move it into beforeEach, too, preserving it's location in relation to assignments
