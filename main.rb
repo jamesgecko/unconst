@@ -39,8 +39,10 @@ end
 
 class Editor
   def initialize(file, path)
+    @path = path
+    @indent = 2
     @file = file
-    @middle_index = find_lines(file, 'beforeEach(')
+    @middle_index = find_before_each(file, 'beforeEach(')
     @above_mod = 0
     @below_mod = 0
     @index = 0
@@ -92,6 +94,25 @@ class Editor
     line_number + @above_mod
   end
 
+  def insert_before_each(index)
+    @file.insert(index, ' ' * @indent + "beforeEach(() => {\n")
+    @file.insert(index + 1, ' ' * @indent + "});\n")
+    @file.insert(index + 2, "\n")
+  end
+
+  def find_before_each(array, string)
+    describeCount = 0
+    array.each_with_index do |line, i|
+      describeCount += 1 if line.include?('describe(')
+      if describeCount > 1 || line.include?('it(')
+        insert_before_each(i)
+        return i
+      end
+      return i if line.include?('beforeEach(')
+    end
+    raise "Missing beforeEach and describe blocks in #{@path}"
+  end
+
   def debug
     log "a#{@above_mod}, m#{@middle_index}, b#{@below_mod}: #{@middle_index + 1 + @below_mod + @above_mod}"
   end
@@ -118,29 +139,21 @@ def main
   end
 end
 
-def find_lines(array, string)
-  array.each_with_index do |line, i|
-    return i if line.include?(string)
-  end
-end
-
-def replace_def(body, index, new_var)
-  new_var.content.length # <------- TODO replace defintion without losing line place.
-  # There's a const getting left in the file because we're not using indexes carefully enough.
-end
-
 def parse(filepath, spec)
   editor = Editor.new(spec, filepath)
   known_variables = {}
-
+  
   until editor.reached_middle?
     log "(#{editor.cursor_line})"
-    if spec[editor.cursor_line].include?('const')
+    if spec[editor.cursor_line].include?('const ')
       log "const found: #{spec[editor.cursor_line]}"
       variable = parse_variable_definition(spec, editor.cursor_line)
       known_variables[variable.name] = true
       editor.insert_below(variable)
       editor.replace_above(variable)
+    elsif spec[editor.cursor_line].include?('let ')
+      name = parse_let_definition(spec, editor.cursor_line)
+      known_variables[name] = true
     elsif known_variables[parse_variable_name(spec[editor.cursor_line])]
       name = parse_variable_name(spec[editor.cursor_line])
       log "known variable found: #{name}"
@@ -155,7 +168,7 @@ end
 
 def parse_variable_name(line)
   name = line.strip.match(/^(.*?)(?=[.=(]+)/)
-  name ? name[1] : nil
+  name ? name[1].strip : nil
 end
 
 def parse_variable_definition(array, starting_index)
@@ -165,6 +178,11 @@ def parse_variable_definition(array, starting_index)
   type = type_match[1].strip if type_match
   content = parse_content(array, starting_index)
   Variable.new(name, content, type)
+end
+
+def parse_let_definition(array, starting_index)
+  line = array[starting_index]
+  line.match(/(?<=let )(.*?)(?=[ :;]+)/)[1]
 end
 
 def parse_content(array, starting_index)
