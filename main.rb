@@ -194,4 +194,4 @@ def parse_variable_content(array, starting_index)
   raise 'Runaway parser'
 end
 
-main()
+main() if __FILE__ == $0
