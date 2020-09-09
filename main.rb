@@ -1,16 +1,3 @@
-# This script fixes a very specific issue in Jasmine 2.x test suites. When test
-# objects are declared as constants outside of the initial beforeEach block, the
-# objects can be shared between specs.  Jasmine 3+ runs specs in a random order,
-# exposing issues with this shared state. All global text objects should be
-# declared using `let`, then defined in the beforeEach block.
-# This script edits a test suite to get rid of all the shared consts.
-#
-# Eventual usage: 
-# $ ag -l 'const.*mock' --file-search-regex spec.ts | ruby ~/unconst/main.rb
-#
-# Current usage:
-# $ echo 'app/javascript/v2/app/core/services/feature-guard/feature-guard.service.spec.ts' | ruby ~/unconst/main.rb
-
 def log(string)
   puts string if false
 end
